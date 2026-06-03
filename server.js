@@ -20,6 +20,10 @@ server.listen(PORT, () => {
     console.log(`Servidor rodando com WSS na porta ${PORT}`);
 });
 
+setInterval(() => {
+    console.log("Servidor ativo...");
+}, 30000);
+
 const historico = {};
 
 app.get("/", (req, res) => {
