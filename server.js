@@ -33,6 +33,17 @@ app.get("/", (req, res) => {
 wss.on("connection", (ws) => {
     console.log("Minecraft conectado!");
 
+    const keepAlive = setInterval(() => {
+        if (ws.readyState === ws.OPEN) {
+            ws.ping();
+        }
+    }, 15000);
+
+    ws.on("close", () => {
+        clearInterval(keepAlive);
+        console.log("Minecraft desconectado!");
+    });
+
     ws.on("message", async (data) => {
         try {
             const texto = data.toString();
@@ -83,10 +94,6 @@ wss.on("connection", (ws) => {
             console.error("💥 Erro:", e);
             enviarComando(ws, `say §c[IA] erro interno`);
         }
-    });
-
-    ws.on("close", () => {
-        console.log("Minecraft desconectado!");
     });
 
     ws.send(JSON.stringify({
