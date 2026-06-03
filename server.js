@@ -20,24 +20,39 @@ wss.on("connection", (ws) => {
 
     ws.on("message", async (data) => {
         try {
-            const packet = JSON.parse(data);
-            if (packet.header?.eventName !== "PlayerMessage") return;
+            const texto = data.toString();
+            console.log("📩 PACOTE RECEBIDO:", texto);
 
-            const mensagem = packet.body?.message || "";
-            const jogador = packet.body?.sender || "Jogador";
+            const packet = JSON.parse(texto);
+
+            // ✅ CORREÇÃO PRINCIPAL
+            if (packet.body?.eventName !== "PlayerMessage") return;
+
+            // ✅ SUPORTE A DIFERENTES FORMATOS
+            const mensagem =
+                packet.body?.message ||
+                packet.body?.properties?.Message ||
+                "";
+
+            const jogador =
+                packet.body?.sender?.name ||
+                packet.body?.properties?.Sender ||
+                "Jogador";
 
             if (!mensagem.toLowerCase().startsWith("!ia")) return;
 
             const pergunta = mensagem.slice(3).trim();
             if (!pergunta) return;
 
-            console.log(`[${jogador}] perguntou: ${pergunta}`);
+            console.log(`🧠 [${jogador}] perguntou: ${pergunta}`);
 
+            // histórico
             if (!historico[jogador]) {
                 historico[jogador] = [
                     {
                         role: "system",
-                        content: "Você é uma IA assistente dentro do Minecraft Bedrock. Responda de forma curta e divertida, no máximo 2 frases. Não use markdown, asteriscos ou formatação especial!"
+                        content:
+                            "Você é uma IA assistente dentro do Minecraft Bedrock. Responda de forma curta e divertida, no máximo 2 frases. Não use markdown."
                     }
                 ];
             }
@@ -56,15 +71,20 @@ wss.on("connection", (ws) => {
 
             const resposta = await chamarChatGPT(historico[jogador]);
 
+            if (!resposta) {
+                enviarComando(ws, `say §c[IA] erro ao responder`);
+                return;
+            }
+
             historico[jogador].push({
                 role: "assistant",
                 content: resposta
             });
 
             enviarComando(ws, `say §e[IA] §f${resposta}`);
-
         } catch (e) {
-            console.error("Erro:", e);
+            console.error("💥 Erro:", e);
+            enviarComando(ws, `say §c[IA] erro interno`);
         }
     });
 
@@ -72,6 +92,7 @@ wss.on("connection", (ws) => {
         console.log("Minecraft desconectado!");
     });
 
+    // 📡 Inscreve no evento de chat
     const subscribe = {
         header: {
             version: 1,
@@ -83,6 +104,7 @@ wss.on("connection", (ws) => {
             eventName: "PlayerMessage"
         }
     };
+
     ws.send(JSON.stringify(subscribe));
 });
 
@@ -100,6 +122,7 @@ function enviarComando(ws, comando) {
             origin: { type: "player" }
         }
     };
+
     ws.send(JSON.stringify(packet));
 }
 
@@ -124,11 +147,17 @@ function chamarChatGPT(mensagens) {
 
         const req = https.request(options, (res) => {
             let data = "";
-            res.on("data", (chunk) => data += chunk);
+
+            res.on("data", (chunk) => (data += chunk));
+
             res.on("end", () => {
                 try {
                     const json = JSON.parse(data);
-                    const texto = json.choices[0].message.content;
+
+                    const texto =
+                        json.choices?.[0]?.message?.content ||
+                        "Sem resposta";
+
                     resolve(texto);
                 } catch (e) {
                     console.error("Erro ao parsear resposta:", data);
@@ -141,6 +170,7 @@ function chamarChatGPT(mensagens) {
             console.error("Erro de conexão:", e);
             resolve("Erro de conexão com ChatGPT!");
         });
+
         req.write(body);
         req.end();
     });
