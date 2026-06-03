@@ -7,17 +7,17 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-if (!OPENAI_API_KEY) {
-    console.error("ERRO: Variável OPENAI_API_KEY não definida!");
+if (!GEMINI_API_KEY) {
+    console.error("ERRO: Variável GEMINI_API_KEY não definida!");
     process.exit(1);
 }
 
 const PORT = process.env.PORT || 8080;
 
 server.listen(PORT, () => {
-    console.log(`Servidor rodando com WSS na porta ${PORT}`);
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
 
 setInterval(() => {
@@ -48,7 +48,7 @@ wss.on("connection", (ws) => {
                 "";
 
             const jogador =
-                packet.body?.sender?.name ||
+                packet.body?.sender ||
                 packet.body?.properties?.Sender ||
                 "Jogador";
 
@@ -59,31 +59,22 @@ wss.on("connection", (ws) => {
 
             console.log(`🧠 [${jogador}] perguntou: ${pergunta}`);
 
-            if (!historico[jogador]) {
-                historico[jogador] = [
-                    {
-                        role: "system",
-                        content:
-                            "Você é uma IA assistente dentro do Minecraft Bedrock. Responda curto e divertido, máximo 2 frases."
-                    }
-                ];
-            }
+            if (!historico[jogador]) historico[jogador] = [];
 
             historico[jogador].push({
                 role: "user",
-                content: pergunta
+                parts: [{ text: pergunta }]
             });
 
-            const resposta = await chamarChatGPT(historico[jogador]);
-
-            if (!resposta) {
-                enviarComando(ws, `say §c[IA] erro ao responder`);
-                return;
+            if (historico[jogador].length > 10) {
+                historico[jogador] = historico[jogador].slice(-10);
             }
 
+            const resposta = await chamarGemini(historico[jogador]);
+
             historico[jogador].push({
-                role: "assistant",
-                content: resposta
+                role: "model",
+                parts: [{ text: resposta }]
             });
 
             enviarComando(ws, `say §e[IA] §f${resposta}`);
@@ -127,38 +118,43 @@ function enviarComando(ws, comando) {
     }));
 }
 
-function chamarChatGPT(mensagens) {
+function chamarGemini(historico) {
     return new Promise((resolve) => {
         const body = JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: mensagens,
-            max_tokens: 100
+            system_instruction: {
+                parts: [{
+                    text: "Você é uma IA assistente dentro do Minecraft Bedrock. Responda curto e divertido, máximo 2 frases. Não use markdown, asteriscos ou formatação especial!"
+                }]
+            },
+            contents: historico
         });
 
         const req = https.request({
-            hostname: "api.openai.com",
-            path: "/v1/chat/completions",
+            hostname: "generativelanguage.googleapis.com",
+            path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${OPENAI_API_KEY}`,
                 "Content-Length": Buffer.byteLength(body)
             }
         }, (res) => {
             let data = "";
-
             res.on("data", chunk => data += chunk);
             res.on("end", () => {
                 try {
                     const json = JSON.parse(data);
-                    resolve(json.choices?.[0]?.message?.content || "Sem resposta");
-                } catch {
+                    console.log("Resposta Gemini:", data);
+                    const texto = json.candidates[0].content.parts[0].text;
+                    resolve(texto);
+                } catch (e) {
+                    console.error("Erro ao parsear:", data);
                     resolve("Erro ao processar resposta!");
                 }
             });
         });
 
-        req.on("error", () => {
+        req.on("error", (e) => {
+            console.error("Erro de conexão:", e);
             resolve("Erro de conexão com IA!");
         });
 
