@@ -22,6 +22,10 @@ server.listen(PORT, () => {
 
 const historico = {};
 
+app.get("/", (req, res) => {
+    res.send("Servidor WebSocket da IA ativo!");
+});
+
 wss.on("connection", (ws) => {
     console.log("Minecraft conectado!");
 
@@ -90,7 +94,6 @@ wss.on("connection", (ws) => {
         console.log("Minecraft desconectado!");
     });
 
-    // subscribe no chat
     ws.send(JSON.stringify({
         header: {
             version: 1,
