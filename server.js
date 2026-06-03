@@ -36,7 +36,7 @@ wss.on("connection", (ws) => {
 
             const packet = JSON.parse(texto);
 
-            if (packet.body?.eventName !== "PlayerMessage") return;
+            if (packet.header?.eventName !== "PlayerMessage") return;
 
             const mensagem =
                 packet.body?.message ||
