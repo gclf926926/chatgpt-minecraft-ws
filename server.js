@@ -1,5 +1,11 @@
+const express = require("express");
+const http = require("http");
 const WebSocket = require("ws");
 const https = require("https");
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -9,9 +15,10 @@ if (!OPENAI_API_KEY) {
 }
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`Servidor WebSocket rodando na porta ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Servidor rodando com WSS na porta ${PORT}`);
+});
 
 const historico = {};
 
@@ -25,10 +32,8 @@ wss.on("connection", (ws) => {
 
             const packet = JSON.parse(texto);
 
-            // ✅ CORREÇÃO PRINCIPAL
             if (packet.body?.eventName !== "PlayerMessage") return;
 
-            // ✅ SUPORTE A DIFERENTES FORMATOS
             const mensagem =
                 packet.body?.message ||
                 packet.body?.properties?.Message ||
@@ -46,13 +51,12 @@ wss.on("connection", (ws) => {
 
             console.log(`🧠 [${jogador}] perguntou: ${pergunta}`);
 
-            // histórico
             if (!historico[jogador]) {
                 historico[jogador] = [
                     {
                         role: "system",
                         content:
-                            "Você é uma IA assistente dentro do Minecraft Bedrock. Responda de forma curta e divertida, no máximo 2 frases. Não use markdown."
+                            "Você é uma IA assistente dentro do Minecraft Bedrock. Responda curto e divertido, máximo 2 frases."
                     }
                 ];
             }
@@ -61,13 +65,6 @@ wss.on("connection", (ws) => {
                 role: "user",
                 content: pergunta
             });
-
-            if (historico[jogador].length > 12) {
-                historico[jogador] = [
-                    historico[jogador][0],
-                    ...historico[jogador].slice(-10)
-                ];
-            }
 
             const resposta = await chamarChatGPT(historico[jogador]);
 
@@ -82,6 +79,7 @@ wss.on("connection", (ws) => {
             });
 
             enviarComando(ws, `say §e[IA] §f${resposta}`);
+
         } catch (e) {
             console.error("💥 Erro:", e);
             enviarComando(ws, `say §c[IA] erro interno`);
@@ -92,8 +90,8 @@ wss.on("connection", (ws) => {
         console.log("Minecraft desconectado!");
     });
 
-    // 📡 Inscreve no evento de chat
-    const subscribe = {
+    // subscribe no chat
+    ws.send(JSON.stringify({
         header: {
             version: 1,
             requestId: "1",
@@ -103,13 +101,11 @@ wss.on("connection", (ws) => {
         body: {
             eventName: "PlayerMessage"
         }
-    };
-
-    ws.send(JSON.stringify(subscribe));
+    }));
 });
 
 function enviarComando(ws, comando) {
-    const packet = {
+    ws.send(JSON.stringify({
         header: {
             version: 1,
             requestId: Math.random().toString(),
@@ -121,9 +117,7 @@ function enviarComando(ws, comando) {
             commandLine: comando,
             origin: { type: "player" }
         }
-    };
-
-    ws.send(JSON.stringify(packet));
+    }));
 }
 
 function chamarChatGPT(mensagens) {
@@ -134,7 +128,7 @@ function chamarChatGPT(mensagens) {
             max_tokens: 100
         });
 
-        const options = {
+        const req = https.request({
             hostname: "api.openai.com",
             path: "/v1/chat/completions",
             method: "POST",
@@ -143,32 +137,22 @@ function chamarChatGPT(mensagens) {
                 "Authorization": `Bearer ${OPENAI_API_KEY}`,
                 "Content-Length": Buffer.byteLength(body)
             }
-        };
-
-        const req = https.request(options, (res) => {
+        }, (res) => {
             let data = "";
 
-            res.on("data", (chunk) => (data += chunk));
-
+            res.on("data", chunk => data += chunk);
             res.on("end", () => {
                 try {
                     const json = JSON.parse(data);
-
-                    const texto =
-                        json.choices?.[0]?.message?.content ||
-                        "Sem resposta";
-
-                    resolve(texto);
-                } catch (e) {
-                    console.error("Erro ao parsear resposta:", data);
+                    resolve(json.choices?.[0]?.message?.content || "Sem resposta");
+                } catch {
                     resolve("Erro ao processar resposta!");
                 }
             });
         });
 
-        req.on("error", (e) => {
-            console.error("Erro de conexão:", e);
-            resolve("Erro de conexão com ChatGPT!");
+        req.on("error", () => {
+            resolve("Erro de conexão com IA!");
         });
 
         req.write(body);
